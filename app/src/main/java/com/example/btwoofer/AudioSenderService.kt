@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.Manifest
+import android.annotation.RequiresApi
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -33,6 +34,11 @@ class AudioSenderService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            setStatus("Sender requires Android 10 or newer")
             stopSelf()
             return START_NOT_STICKY
         }
@@ -73,6 +79,7 @@ class AudioSenderService : Service() {
         return START_NOT_STICKY
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun startCapture(host: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
