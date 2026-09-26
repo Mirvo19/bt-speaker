@@ -3,71 +3,167 @@ package com.example.btwoofer
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import org.bouncycastle.asn1.x500.X500Name
+import org.bouncycastle.asn1.x509.GeneralName
+import org.bouncycastle.asn1.x509.GeneralNames
+import org.bouncycastle.asn1.x509.Extension
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
+import org.java_websocket.WebSocket
+import org.java_websocket.handshake.ClientHandshake
+import org.java_websocket.server.DefaultSSLWebSocketServerFactory
+import org.java_websocket.server.WebSocketServer
 import java.io.IOException
+import java.math.BigInteger
 import java.net.InetSocketAddress
-import java.net.ServerSocket
-import java.net.Socket
+import java.nio.ByteBuffer
+import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.SecureRandom
+import java.util.Date
+import javax.net.ssl.KeyManagerFactory
+import javax.net.ssl.SSLContext
 
 class AudioReceiver(private val onStatusChanged: (String) -> Unit) {
     @Volatile private var running = false
-    @Volatile private var serverSocket: ServerSocket? = null
-    @Volatile private var clientSocket: Socket? = null
-    private var serverThread: Thread? = null
+    @Volatile private var server: WebSocketServer? = null
+    @Volatile private var serverThread: Thread? = null
+    private val playbackLock = Any()
+    private var activeClient: WebSocket? = null
+    private var audioTrack: AudioTrack? = null
+    private var carriedBytes = ByteArray(0)
+    private var hasReceivedAudio = false
 
-    fun start() {
+    fun start(ipAddress: String) {
         if (running) return
+        if (server != null) stop()
+        if (ipAddress == "Unavailable - connect to Wi-Fi") {
+            onStatusChanged("Error: connect to Wi-Fi first")
+            return
+        }
         running = true
         onStatusChanged("Starting")
-        serverThread = Thread(::listen, "AudioReceiverServer").also { it.start() }
+        serverThread = Thread({
+            try {
+                val websocketServer = createWebSocketServer(ipAddress)
+                server = websocketServer
+                websocketServer.start()
+            } catch (error: Exception) {
+                if (running) {
+                    running = false
+                    onStatusChanged("Error: ${error.message ?: "could not start receiver"}")
+                }
+            }
+        }, "AudioReceiverServer").also { it.start() }
     }
 
     fun stop() {
+        if (!running && server == null) return
         running = false
-        try { clientSocket?.close() } catch (_: IOException) { }
-        try { serverSocket?.close() } catch (_: IOException) { }
-        onStatusChanged("Stopped")
-    }
-
-    private fun listen() {
         try {
-            val server = ServerSocket().apply {
-                reuseAddress = true
-                bind(InetSocketAddress(PORT))
+            synchronized(playbackLock) {
+                activeClient?.close(1001, "Receiver stopped")
+                releasePlayback()
+                activeClient = null
             }
-            serverSocket = server
-            if (!running) return
-            onStatusChanged("Listening")
-            while (running) {
-                try {
-                    val client = server.accept()
-                    clientSocket = client
-                    onStatusChanged("Connected")
-                    try {
-                        playClient(client)
-                    } catch (_: IOException) {
-                        if (running) onStatusChanged("Disconnected")
-                    } finally {
-                        try { client.close() } catch (_: IOException) { }
-                    }
-                    clientSocket = null
-                    if (running) onStatusChanged("Listening")
-                } catch (error: IOException) {
-                    if (running) throw error
-                }
-            }
-        } catch (_: IOException) {
-            if (running) onStatusChanged("Server error")
+            server?.stop(1000)
+        } catch (_: Exception) {
         } finally {
-            running = false
-            try { clientSocket?.close() } catch (_: IOException) { }
-            try { serverSocket?.close() } catch (_: IOException) { }
-            clientSocket = null
-            serverSocket = null
+            server = null
             onStatusChanged("Stopped")
         }
     }
 
-    private fun playClient(client: Socket) {
+    private fun createWebSocketServer(ipAddress: String): WebSocketServer {
+        val websocketServer = object : WebSocketServer(InetSocketAddress("0.0.0.0", PORT)) {
+            override fun onOpen(connection: WebSocket, handshake: ClientHandshake) {
+                synchronized(playbackLock) {
+                    if (!running) {
+                        connection.close(1001, "Receiver stopped")
+                        return
+                    }
+                    if (activeClient != null) {
+                        connection.close(1008, "Only one sender is supported")
+                        return
+                    }
+                    try {
+                        activeClient = connection
+                        audioTrack = createAudioTrack()
+                        audioTrack?.play()
+                        carriedBytes = ByteArray(0)
+                        hasReceivedAudio = false
+                        onStatusChanged("Connected")
+                    } catch (error: Exception) {
+                        releasePlayback()
+                        activeClient = null
+                        connection.close(1011, "Audio output unavailable")
+                    }
+                }
+            }
+
+            override fun onMessage(connection: WebSocket, message: ByteBuffer) {
+                val packet = ByteArray(message.remaining())
+                message.get(packet)
+                playPcm(connection, packet)
+            }
+
+            override fun onMessage(connection: WebSocket, message: String) {
+                connection.close(1003, "Binary PCM frames required")
+            }
+
+            override fun onClose(connection: WebSocket, code: Int, reason: String, remote: Boolean) {
+                synchronized(playbackLock) {
+                    if (activeClient === connection) {
+                        releasePlayback()
+                        activeClient = null
+                        if (running) onStatusChanged("Waiting")
+                    }
+                }
+            }
+
+            override fun onError(connection: WebSocket?, error: Exception) {
+                if (running && connection == null) {
+                    running = false
+                    onStatusChanged("Error: ${error.message ?: "WebSocket server error"}")
+                }
+            }
+
+            override fun onStart() {
+                if (running) onStatusChanged("Waiting")
+            }
+        }
+        websocketServer.setWebSocketFactory(DefaultSSLWebSocketServerFactory(createSslContext(ipAddress)))
+        return websocketServer
+    }
+
+    private fun playPcm(connection: WebSocket, packet: ByteArray) {
+        synchronized(playbackLock) {
+            if (!running || activeClient !== connection) return
+            val combined = ByteArray(carriedBytes.size + packet.size)
+            System.arraycopy(carriedBytes, 0, combined, 0, carriedBytes.size)
+            System.arraycopy(packet, 0, combined, carriedBytes.size, packet.size)
+            val alignedSize = combined.size - combined.size % BYTES_PER_FRAME
+            try {
+                var offset = 0
+                while (offset < alignedSize) {
+                    val written = audioTrack?.write(combined, offset, alignedSize - offset, AudioTrack.WRITE_BLOCKING)
+                        ?: throw IOException("Audio output is unavailable")
+                    if (written <= 0) throw IOException("Audio output write failed: $written")
+                    offset += written
+                }
+                carriedBytes = combined.copyOfRange(alignedSize, combined.size)
+                if (!hasReceivedAudio) {
+                    hasReceivedAudio = true
+                    onStatusChanged("Streaming")
+                }
+            } catch (_: Exception) {
+                connection.close(1011, "Audio output failed")
+            }
+        }
+    }
+
+    private fun createAudioTrack(): AudioTrack {
         val minimum = AudioTrack.getMinBufferSize(
             SAMPLE_RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT
         )
@@ -77,45 +173,68 @@ class AudioReceiver(private val onStatusChanged: (String) -> Unit) {
             SAMPLE_RATE,
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT,
-            maxOf(minimum * 2, PLAYBACK_BUFFER_BYTES),
+            maxOf(minimum, PLAYBACK_BUFFER_BYTES),
             AudioTrack.MODE_STREAM
         )
         if (track.state != AudioTrack.STATE_INITIALIZED) {
             track.release()
             throw IOException("Unable to initialize audio output")
         }
+        return track
+    }
 
-        try {
-            track.play()
-            val input = client.getInputStream()
-            val buffer = ByteArray(READ_BUFFER_BYTES + 4)
-            var carry = 0
-            while (running && !client.isClosed) {
-                val count = input.read(buffer, carry, READ_BUFFER_BYTES)
-                if (count < 0) break
-                val available = carry + count
-                val aligned = available - available % BYTES_PER_FRAME
-                var offset = 0
-                while (offset < aligned && running) {
-                    val written = track.write(buffer, offset, aligned - offset)
-                    if (written <= 0) throw IOException("Audio output write failed: $written")
-                    offset += written
-                }
-                carry = available - aligned
-                if (carry > 0) System.arraycopy(buffer, aligned, buffer, 0, carry)
-            }
-        } finally {
-            try { track.stop() } catch (_: IllegalStateException) { }
-            track.flush()
+    private fun releasePlayback() {
+        val track = audioTrack
+        audioTrack = null
+        carriedBytes = ByteArray(0)
+        hasReceivedAudio = false
+        if (track != null) {
+            try { track.pause() } catch (_: IllegalStateException) { }
+            try { track.flush() } catch (_: IllegalStateException) { }
             track.release()
         }
+    }
+
+    private fun createSslContext(ipAddress: String): SSLContext {
+        val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
+        keyPairGenerator.initialize(2048)
+        val keyPair = keyPairGenerator.generateKeyPair()
+        val subject = X500Name("CN=BT Woofer Audio Link")
+        val now = System.currentTimeMillis()
+        val certificateBuilder = JcaX509v3CertificateBuilder(
+            subject,
+            BigInteger(64, SecureRandom()),
+            Date(now - CERTIFICATE_CLOCK_SKEW_MS),
+            Date(now + CERTIFICATE_VALIDITY_MS),
+            subject,
+            keyPair.public
+        ).addExtension(
+            Extension.subjectAlternativeName,
+            false,
+            GeneralNames(GeneralName(GeneralName.iPAddress, ipAddress))
+        )
+        val certificate = JcaX509CertificateConverter().getCertificate(
+            certificateBuilder.build(JcaContentSignerBuilder("SHA256withRSA").build(keyPair.private))
+        )
+        certificate.verify(keyPair.public)
+
+        val password = ByteArray(32).also(SecureRandom()::nextBytes).joinToString("") { "%02x".format(it) }.toCharArray()
+        val keyStore = KeyStore.getInstance("PKCS12").apply {
+            load(null, null)
+            setKeyEntry("receiver", keyPair.private, password, arrayOf(certificate))
+        }
+        val keyManagers = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply {
+            init(keyStore, password)
+        }
+        return SSLContext.getInstance("TLS").apply { init(keyManagers.keyManagers, null, SecureRandom()) }
     }
 
     companion object {
         const val PORT = 50005
         private const val SAMPLE_RATE = 44_100
         private const val BYTES_PER_FRAME = 4
-        private const val READ_BUFFER_BYTES = 4_096
         private const val PLAYBACK_BUFFER_BYTES = 8_192
+        private const val CERTIFICATE_CLOCK_SKEW_MS = 60_000L
+        private const val CERTIFICATE_VALIDITY_MS = 365L * 24 * 60 * 60 * 1000
     }
 }

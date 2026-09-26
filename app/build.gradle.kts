@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.btwoofer"
-        minSdk = 21
+        minSdk = 24
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
@@ -24,4 +24,9 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+dependencies {
+    implementation("org.java-websocket:Java-WebSocket:1.5.7")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.80")
 }

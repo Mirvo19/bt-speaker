@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f1eee7">
+  <title>BT Woofer | PC Audio Sender</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f1eee7;
+      --ink: #202923;
+      --muted: #626d64;
+      --line: #c8cec3;
+      --green: #28674d;
+      --green-dark: #194a36;
+      --signal: #cf5c36;
+      --panel: #e3e7de;
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background-color: var(--paper);
+      background-image: radial-gradient(#aeb6a8 0.7px, transparent 0.7px);
+      background-size: 18px 18px;
+    }
+
+    main {
+      width: min(100% - 36px, 700px);
+      margin: 0 auto;
+      padding: clamp(28px, 7vh, 72px) 0 48px;
+    }
+
+    .topline {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--green-dark);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .mark {
+      display: inline-grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      border: 1px solid var(--green);
+      border-radius: 50%;
+      font-size: 14px;
+    }
+
+    h1 {
+      max-width: 620px;
+      margin: 26px 0 10px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(38px, 8vw, 62px);
+      font-weight: 500;
+      line-height: 1.02;
+    }
+
+    .intro {
+      max-width: 540px;
+      margin: 0 0 34px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.55;
+    }
+
+    .connect-form {
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-top: 4px solid var(--green);
+      background: rgba(250, 249, 245, 0.88);
+      box-shadow: 8px 8px 0 rgba(32, 41, 35, 0.08);
+    }
+
+    .fields {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 125px;
+      gap: 14px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    input {
+      width: 100%;
+      min-height: 48px;
+      padding: 10px 12px;
+      border: 1px solid #9aa69a;
+      border-radius: 3px;
+      color: var(--ink);
+      background: #fff;
+      font: inherit;
+      font-size: 16px;
+    }
+
+    input:focus-visible, button:focus-visible {
+      outline: 3px solid #e5a346;
+      outline-offset: 2px;
+    }
+
+    .instructions {
+      margin: 20px 0 22px;
+      padding: 14px 16px;
+      border-left: 3px solid var(--signal);
+      background: var(--panel);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    button {
+      min-height: 48px;
+      padding: 0 21px;
+      border: 0;
+      border-radius: 3px;
+      color: #fff;
+      background: var(--green);
+      font: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover { background: var(--green-dark); }
+    button:disabled { cursor: wait; opacity: 0.65; }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 24px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #899187;
+    }
+
+    .status[data-state="connected"] .dot,
+    .status[data-state="streaming"] .dot { background: var(--green); }
+    .status[data-state="error"] .dot { background: var(--signal); }
+
+    .notice {
+      min-height: 24px;
+      margin: 17px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 520px) {
+      .connect-form { padding: 18px; }
+      .fields { grid-template-columns: 1fr 95px; gap: 10px; }
+      .actions { align-items: flex-start; flex-direction: column; gap: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="topline"><span class="mark" aria-hidden="true">BW</span> Local audio link</div>
+    <h1>PC audio,<br>on your speakers.</h1>
+    <p class="intro">Send live Windows system audio over your local Wi-Fi to the headphone output on your Android receiver.</p>
+
+    <form class="connect-form" id="connect-form">
+      <div class="fields">
+        <div>
+          <label for="receiver-ip">Receiver IP address</label>
+          <input id="receiver-ip" name="receiver-ip" type="text" inputmode="decimal" placeholder="192.168.1.42" autocomplete="off" required>
+        </div>
+        <div>
+          <label for="receiver-port">Port</label>
+          <input id="receiver-port" name="receiver-port" type="number" min="1" max="65535" value="50005" required>
+        </div>
+      </div>
+
+      <p class="instructions">When the browser asks what to share, choose <strong>Entire Screen</strong> and enable <strong>Share audio</strong>. System audio capture works in Chrome or Edge on Windows with those options.</p>
+
+      <div class="actions">
+        <button id="connect-button" type="submit">Connect</button>
+        <div class="status" id="connection-status" data-state="waiting" role="status" aria-live="polite">
+          <span class="dot" aria-hidden="true"></span><span id="status-text">Waiting</span>
+        </div>
+      </div>
+      <p class="notice" id="notice" aria-live="polite">Before connecting, approve the receiver's local certificate in Chrome. The Android app shows the address and port.</p>
+    </form>
+  </main>
+
+  <script>
+    const form = document.querySelector("#connect-form");
+    const addressInput = document.querySelector("#receiver-ip");
+    const portInput = document.querySelector("#receiver-port");
+    const connectButton = document.querySelector("#connect-button");
+    const statusElement = document.querySelector("#connection-status");
+    const statusText = document.querySelector("#status-text");
+    const notice = document.querySelector("#notice");
+    let session = null;
+    let opening = false;
+
+    function setStatus(text, state) {
+      statusText.textContent = text;
+      statusElement.dataset.state = state;
+    }
+
+    function releaseSession(current) {
+      current.processor?.disconnect();
+      current.source?.disconnect();
+      current.silence?.disconnect();
+      current.stream?.getTracks().forEach((track) => track.stop());
+      if (current.audioContext && current.audioContext.state !== "closed") {
+        current.audioContext.close().catch(() => {});
+      }
+      if (session === current) session = null;
+      opening = false;
+      connectButton.textContent = "Connect";
+      connectButton.disabled = false;
+    }
+
+    function disconnect(message = "Disconnected") {
+      if (!session) return;
+      const current = session;
+      session = null;
+      releaseSession(current);
+      if (current.socket && current.socket.readyState < WebSocket.CLOSING) current.socket.close();
+      setStatus(message, "waiting");
+      notice.textContent = "Disconnected. The receiver is ready for another connection.";
+    }
+
+    async function connect() {
+      if (opening || session) return;
+      opening = true;
+      connectButton.disabled = true;
+      setStatus("Choose screen audio", "waiting");
+      notice.textContent = "Choose Entire Screen and enable Share audio in the browser prompt.";
+      let current;
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        current = { stream, audioContext: null, socket: null, source: null, processor: null, silence: null };
+        session = current;
+        const audioTracks = stream.getAudioTracks();
+        stream.getVideoTracks().forEach((track) => track.stop());
+        if (audioTracks.length === 0) {
+          stream.getTracks().forEach((track) => track.stop());
+          throw new Error("No audio track was shared. Choose Entire Screen and enable Share audio, then try again.");
+        }
+
+        const hostname = addressInput.value.trim();
+        const port = Number(portInput.value);
+        if (!hostname || !Number.isInteger(port) || port < 1 || port > 65535) {
+          stream.getTracks().forEach((track) => track.stop());
+          throw new Error("Enter a valid receiver IP address and port.");
+        }
+
+        const hostForUrl = hostname.includes(":") && !hostname.startsWith("[") ? `[${hostname}]` : hostname;
+        const audioContext = new AudioContext({ sampleRate: 44100 });
+        current.audioContext = audioContext;
+        await audioContext.audioWorklet.addModule("./pcm-worklet.js");
+        const socket = new WebSocket(`wss://${hostForUrl}:${port}`);
+        socket.binaryType = "arraybuffer";
+        current.socket = socket;
+        setStatus("Connecting", "waiting");
+        notice.textContent = "Opening the secure local connection to the phone.";
+
+        await new Promise((resolve, reject) => {
+          socket.addEventListener("open", resolve, { once: true });
+          socket.addEventListener("error", () => reject(new Error("Connection failed. Check the phone IP, port, Wi-Fi, and approve its certificate in Chrome.")), { once: true });
+          socket.addEventListener("close", () => {
+            if (session === current) {
+              disconnect("Disconnected");
+              reject(new Error("The receiver closed the connection."));
+            }
+          }, { once: true });
+        });
+
+        if (session !== current) return;
+        await audioContext.resume();
+        const audioOnlyStream = new MediaStream(audioTracks);
+        const source = audioContext.createMediaStreamSource(audioOnlyStream);
+        const processor = new AudioWorkletNode(audioContext, "pcm-packer", {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          outputChannelCount: [2],
+          channelCount: 2,
+          channelCountMode: "explicit"
+        });
+        const silence = audioContext.createGain();
+        silence.gain.value = 0;
+        source.connect(processor).connect(silence).connect(audioContext.destination);
+        current.source = source;
+        current.processor = processor;
+        current.silence = silence;
+        processor.port.onmessage = (event) => {
+          if (session !== current || socket.readyState !== WebSocket.OPEN) return;
+          socket.send(event.data);
+          if (statusElement.dataset.state !== "streaming") {
+            setStatus("Streaming", "streaming");
+            notice.textContent = "Live stereo audio is being sent to the receiver.";
+          }
+        };
+        audioTracks.forEach((track) => {
+          track.addEventListener("ended", () => disconnect("Screen sharing ended"), { once: true });
+        });
+        opening = false;
+        connectButton.disabled = false;
+        connectButton.textContent = "Disconnect";
+        setStatus("Connected", "connected");
+        notice.textContent = "Connected. Waiting for audio frames.";
+      } catch (error) {
+        if (current) {
+          releaseSession(current);
+          if (current.socket && current.socket.readyState < WebSocket.CLOSING) current.socket.close();
+        }
+        else opening = false;
+        connectButton.disabled = false;
+        connectButton.textContent = "Connect";
+        setStatus("Error", "error");
+        notice.textContent = error instanceof Error ? error.message : "Could not start the audio stream.";
+      }
+    }
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (session) disconnect();
+      else connect();
+    });
+  </script>
+</body>
+</html>

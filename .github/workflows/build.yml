@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: android-build-${{ github.ref }}
@@ -68,3 +70,24 @@ jobs:
           fail_on_unmatched_files: true
           overwrite_files: true
           files: BT-Woofer-Audio-Link-debug.apk
+
+  deploy-pages:
+    name: Deploy sender website to GitHub Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload website files
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website
+
+      - name: Deploy website
+        id: deployment
+        uses: actions/deploy-pages@v4
