@@ -156,7 +156,7 @@ class MainActivity : Activity() {
         val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= 33) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         val missing = permissions.filter {
-            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+            packageManager.checkPermission(it, packageName) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isNotEmpty()) {
             requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS)
@@ -172,7 +172,7 @@ class MainActivity : Activity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_PERMISSIONS) {
-            val audioGranted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+            val audioGranted = packageManager.checkPermission(Manifest.permission.RECORD_AUDIO, packageName) ==
                 PackageManager.PERMISSION_GRANTED
             if (audioGranted) requestProjectionPermission()
             else statusLabel.text = "Status: Microphone permission is required for playback capture"
