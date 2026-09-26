@@ -180,13 +180,15 @@ class AudioSenderService : Service() {
         getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().putString(STATUS_KEY, status).apply()
         if (destroyed) return
         val notification = buildNotification("$status - $receiverHost")
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(NOTIFICATION_ID, notification)
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(CHANNEL_ID, "Audio streaming", NotificationManager.IMPORTANCE_LOW)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .createNotificationChannel(channel)
         }
     }
 
