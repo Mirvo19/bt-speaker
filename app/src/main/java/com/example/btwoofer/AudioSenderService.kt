@@ -4,8 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
@@ -72,6 +74,11 @@ class AudioSenderService : Service() {
     }
 
     private fun startCapture(host: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
+        ) {
+            throw SecurityException("Audio recording permission was revoked")
+        }
         val captureProjection = projection ?: throw IllegalStateException("Missing media projection")
         val captureConfig = AudioPlaybackCaptureConfiguration.Builder(captureProjection)
             .addMatchingUsage(android.media.AudioAttributes.USAGE_MEDIA)
