@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import org.json.JSONObject
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x509.GeneralName
 import org.bouncycastle.asn1.x509.GeneralNames
@@ -121,7 +122,19 @@ class AudioReceiver(
             }
 
             override fun onMessage(connection: WebSocket, message: String) {
-                connection.close(1003, "Binary PCM frames required")
+                try {
+                    val command = JSONObject(message)
+                    if (command.getString("type") != "volume") {
+                        connection.close(1003, "Unsupported control message")
+                        return
+                    }
+                    val volume = command.getDouble("value").toFloat().coerceIn(0f, 1f)
+                    synchronized(playbackLock) {
+                        if (activeClient === connection) audioTrack?.setVolume(volume)
+                    }
+                } catch (_: Exception) {
+                    connection.close(1003, "Invalid control message")
+                }
             }
 
             override fun onClose(connection: WebSocket, code: Int, reason: String, remote: Boolean) {

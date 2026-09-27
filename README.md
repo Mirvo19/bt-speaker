@@ -10,6 +10,8 @@ Stream live Windows system audio from a desktop browser to an Android phone over
 4. Press **Connect**. In the browser sharing prompt, choose **Entire Screen** and turn on **Share audio**, then confirm sharing. A missing audio track is shown as an error. Press **Disconnect** to stop.
 5. Connect the phone's headphone output to the speaker system. Keep the receiver app open while listening.
 
+The sender page remembers up to six recent receiver IP/port pairs and your volume setting in that browser's local storage. The volume slider adjusts the receiver's Android playback volume while connected; the phone's hardware/media volume still applies as an additional limit.
+
 The web page is static HTML and JavaScript; it has no backend. The GitHub Actions workflow publishes it to Pages from `main`. For first-time Pages setup, either set **Settings > Pages > Build and deployment > Source** to **GitHub Actions**, or add a `GH_PAGES_ADMIN_TOKEN` Actions secret containing a token authorized to enable Pages (classic PAT with `repo` scope, or a fine-grained PAT with Pages write and Administration write). When configured, this token is used by the Pages configuration action; the deployment itself uses the workflow's Pages and OIDC permissions.
 
 ## Compatibility and limits

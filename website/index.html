@@ -95,7 +95,7 @@
       font-weight: 700;
     }
 
-    input {
+    input, select {
       width: 100%;
       min-height: 48px;
       padding: 10px 12px;
@@ -105,6 +105,31 @@
       background: #fff;
       font: inherit;
       font-size: 16px;
+    }
+
+    .recent-field { margin-top: 14px; }
+
+    .volume-field { margin-top: 20px; }
+
+    .volume-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+    }
+
+    .volume-heading output {
+      color: var(--green-dark);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    input[type="range"] {
+      min-height: 28px;
+      padding: 0;
+      border: 0;
+      accent-color: var(--green);
+      background: transparent;
+      cursor: pointer;
     }
 
     input:focus-visible, button:focus-visible {
@@ -205,6 +230,20 @@
           <input id="receiver-port" name="receiver-port" type="number" min="1" max="65535" value="50005" required>
         </div>
       </div>
+      <div class="recent-field">
+        <label for="recent-receivers">Recent receivers</label>
+        <select id="recent-receivers">
+          <option value="">Choose a saved receiver</option>
+        </select>
+      </div>
+
+      <div class="volume-field">
+        <div class="volume-heading">
+          <label for="receiver-volume">Receiver volume</label>
+          <output id="volume-value" for="receiver-volume">100%</output>
+        </div>
+        <input id="receiver-volume" type="range" min="0" max="100" value="100" aria-label="Receiver volume">
+      </div>
 
       <p class="instructions">When the browser asks what to share, choose <strong>Entire Screen</strong> and enable <strong>Share audio</strong>. System audio capture works in Chrome or Edge on Windows with those options.</p>
 
@@ -223,12 +262,71 @@
     const form = document.querySelector("#connect-form");
     const addressInput = document.querySelector("#receiver-ip");
     const portInput = document.querySelector("#receiver-port");
+    const recentReceivers = document.querySelector("#recent-receivers");
+    const volumeInput = document.querySelector("#receiver-volume");
+    const volumeValue = document.querySelector("#volume-value");
     const connectButton = document.querySelector("#connect-button");
     const statusElement = document.querySelector("#connection-status");
     const statusText = document.querySelector("#status-text");
     const notice = document.querySelector("#notice");
     let session = null;
     let opening = false;
+
+    function loadRecentReceivers() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("bt-woofer-receivers") || "[]");
+        return Array.isArray(saved) ? saved.filter((item) => item && typeof item.ip === "string" && Number.isInteger(item.port)) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function renderRecentReceivers() {
+      recentReceivers.replaceChildren(new Option("Choose a saved receiver", ""));
+      for (const receiver of loadRecentReceivers()) {
+        const value = `${receiver.ip}|${receiver.port}`;
+        recentReceivers.add(new Option(`${receiver.ip}:${receiver.port}`, value));
+      }
+    }
+
+    function rememberReceiver(ip, port) {
+      const recent = loadRecentReceivers().filter((item) => item.ip !== ip || item.port !== port);
+      recent.unshift({ ip, port });
+      try {
+        localStorage.setItem("bt-woofer-receivers", JSON.stringify(recent.slice(0, 6)));
+      } catch {
+        notice.textContent = "This browser could not save recent receiver addresses.";
+      }
+      renderRecentReceivers();
+    }
+
+    function sendVolume(socket) {
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "volume", value: Number(volumeInput.value) / 100 }));
+      }
+    }
+
+    try {
+      const savedVolume = Number(localStorage.getItem("bt-woofer-volume"));
+      if (Number.isFinite(savedVolume) && localStorage.getItem("bt-woofer-volume") !== null) {
+        volumeInput.value = String(Math.max(0, Math.min(100, Math.round(savedVolume))));
+      }
+    } catch { }
+    volumeValue.value = `${volumeInput.value}%`;
+    renderRecentReceivers();
+
+    recentReceivers.addEventListener("change", () => {
+      const separator = recentReceivers.value.lastIndexOf("|");
+      if (separator < 0) return;
+      addressInput.value = recentReceivers.value.slice(0, separator);
+      portInput.value = recentReceivers.value.slice(separator + 1);
+    });
+
+    volumeInput.addEventListener("input", () => {
+      volumeValue.value = `${volumeInput.value}%`;
+      try { localStorage.setItem("bt-woofer-volume", volumeInput.value); } catch { }
+      sendVolume(session?.socket);
+    });
 
     function setStatus(text, state) {
       statusText.textContent = text;
@@ -283,6 +381,7 @@
           stream.getTracks().forEach((track) => track.stop());
           throw new Error("Enter a valid receiver IP address and port.");
         }
+        rememberReceiver(hostname, port);
 
         const hostForUrl = hostname.includes(":") && !hostname.startsWith("[") ? `[${hostname}]` : hostname;
         const audioContext = new AudioContext({ sampleRate: 44100 });
@@ -306,6 +405,7 @@
         });
 
         if (session !== current) return;
+        sendVolume(socket);
         await audioContext.resume();
         const audioOnlyStream = new MediaStream(audioTracks);
         const source = audioContext.createMediaStreamSource(audioOnlyStream);
