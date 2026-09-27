@@ -40,8 +40,10 @@ class AudioReceiver(
     private val onStatusChanged: (String) -> Unit
 ) {
     @Volatile private var running = false
+    @Volatile private var stopping = false
+    private var generation = 0L
     @Volatile private var server: WebSocketServer? = null
-    @Volatile private var serverThread: Thread? = null
+    private val lifecycleLock = Any()
     private val playbackLock = Any()
     private var activeClient: WebSocket? = null
     private var audioTrack: AudioTrack? = null
@@ -49,43 +51,75 @@ class AudioReceiver(
     private var hasReceivedAudio = false
 
     fun start(ipAddress: String) {
-        if (running) return
-        if (server != null) stop()
         if (ipAddress == "Unavailable - connect to Wi-Fi") {
             onStatusChanged("Error: connect to Wi-Fi first")
             return
         }
-        running = true
+        val startGeneration: Long
+        synchronized(lifecycleLock) {
+            if (running || stopping) return
+            if (server != null) {
+                stop()
+                return
+            }
+            generation += 1
+            startGeneration = generation
+            running = true
+        }
         onStatusChanged("Starting")
-        serverThread = Thread({
+        Thread({
             try {
-                val websocketServer = createWebSocketServer(ipAddress)
-                server = websocketServer
-                websocketServer.start()
+                val candidate = createWebSocketServer(ipAddress)
+                val shouldStart = synchronized(lifecycleLock) {
+                    if (!running || stopping || generation != startGeneration) {
+                        false
+                    } else {
+                        server = candidate
+                        true
+                    }
+                }
+                if (!shouldStart) {
+                    candidate.stop(0)
+                    return@Thread
+                }
+                candidate.start()
             } catch (error: Exception) {
                 if (running) {
                     running = false
                     onStatusChanged("Error: ${error.message ?: "could not start receiver"}")
                 }
             }
-        }, "AudioReceiverServer").also { it.start() }
+        }, "AudioReceiverServer").start()
     }
 
     fun stop() {
-        if (!running && server == null) return
-        running = false
-        try {
-            synchronized(playbackLock) {
-                activeClient?.close(1001, "Receiver stopped")
-                releasePlayback()
-                activeClient = null
-            }
-            server?.stop(1000)
-        } catch (_: Exception) {
-        } finally {
+        val stoppingServer: WebSocketServer?
+        synchronized(lifecycleLock) {
+            if (stopping || (!running && server == null)) return
+            generation += 1
+            running = false
+            stopping = true
+            stoppingServer = server
             server = null
-            onStatusChanged("Stopped")
         }
+        onStatusChanged("Stopping")
+        Thread({
+            try {
+                synchronized(playbackLock) {
+                    val client = activeClient
+                    activeClient = null
+                    releasePlayback()
+                    client?.close(1001, "Receiver stopped")
+                }
+                stoppingServer?.stop(SERVER_STOP_TIMEOUT_MS)
+            } catch (_: Exception) {
+            } finally {
+                synchronized(lifecycleLock) {
+                    stopping = false
+                }
+                onStatusChanged("Stopped")
+            }
+        }, "AudioReceiverStop").start()
     }
 
     private fun createWebSocketServer(ipAddress: String): WebSocketServer {
@@ -289,6 +323,7 @@ class AudioReceiver(
         private const val SAMPLE_RATE = 44_100
         private const val BYTES_PER_FRAME = 4
         private const val PLAYBACK_BUFFER_BYTES = 8_192
+        private const val SERVER_STOP_TIMEOUT_MS = 1_000
         private const val CERTIFICATE_CLOCK_SKEW_MS = 60_000L
         private const val CERTIFICATE_VALIDITY_MS = 3650L * 24 * 60 * 60 * 1000
         private const val KEYSTORE_PASSWORD = "bt-woofer-local-keystore"

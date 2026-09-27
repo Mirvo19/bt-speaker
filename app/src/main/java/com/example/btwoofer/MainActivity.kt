@@ -1,6 +1,8 @@
 package com.example.btwoofer
 
 import android.app.Activity
+import android.content.Context
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.Button
@@ -23,7 +25,12 @@ class MainActivity : Activity() {
             runOnUiThread {
                 statusLabel.text = "Status: $status"
                 listening = status != "Stopped" && !status.startsWith("Error:")
-                actionButton.text = if (listening) "Stop listening" else "Start listening"
+                actionButton.text = when {
+                    status == "Stopping" -> "Stopping..."
+                    listening -> "Stop listening"
+                    else -> "Start listening"
+                }
+                actionButton.isEnabled = status != "Stopping"
             }
         }
         buildInterface()
@@ -83,9 +90,6 @@ class MainActivity : Activity() {
             setOnClickListener {
                 if (listening) {
                     receiver.stop()
-                    listening = false
-                    statusLabel.text = "Status: Stopped"
-                    actionButton.text = "Start listening"
                 } else {
                     updateAddress()
                     receiver.start(addressLabel.text.toString())
@@ -105,7 +109,10 @@ class MainActivity : Activity() {
             val interfaces = NetworkInterface.getNetworkInterfaces()
             while (interfaces.hasMoreElements()) {
                 val network = interfaces.nextElement()
-                if (!network.isUp || network.isLoopback) continue
+                if (!network.isUp || network.isLoopback ||
+                    !(network.name.startsWith("wlan", ignoreCase = true) ||
+                        network.displayName.contains("wifi", ignoreCase = true))
+                ) continue
                 val addresses = network.inetAddresses
                 while (addresses.hasMoreElements()) {
                     val address = addresses.nextElement()
@@ -115,7 +122,17 @@ class MainActivity : Activity() {
                 }
             }
         } catch (_: Exception) {
-            return "Unavailable - connect to Wi-Fi"
+        }
+        try {
+            val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            @Suppress("DEPRECATION")
+            val address = wifi.connectionInfo.ipAddress
+            if (address != 0) {
+                return listOf(0, 8, 16, 24).joinToString(".") { shift ->
+                    ((address shr shift) and 0xff).toString()
+                }
+            }
+        } catch (_: Exception) {
         }
         return "Unavailable - connect to Wi-Fi"
     }
