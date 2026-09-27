@@ -2,8 +2,14 @@ package com.example.btwoofer
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.Manifest
 import android.net.wifi.WifiManager
 import android.os.Bundle
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
@@ -16,33 +22,43 @@ class MainActivity : Activity() {
     private lateinit var addressLabel: TextView
     private lateinit var statusLabel: TextView
     private lateinit var actionButton: Button
-    private lateinit var receiver: AudioReceiver
     private var listening = false
+    private val handler = Handler(Looper.getMainLooper())
+    private var activityResumed = false
+    private var pendingReceiverHost: String? = null
+
+    private val statusPoll = object : Runnable {
+        override fun run() {
+            if (!activityResumed || !::statusLabel.isInitialized) return
+            val status = getSharedPreferences(ReceiverService.PREFERENCES, MODE_PRIVATE)
+                .getString(ReceiverService.KEY_STATUS, ReceiverService.STATUS_STOPPED)
+                ?: ReceiverService.STATUS_STOPPED
+            showStatus(status)
+            handler.postDelayed(this, STATUS_REFRESH_MS)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        receiver = AudioReceiver(this) { status ->
-            runOnUiThread {
-                statusLabel.text = "Status: $status"
-                listening = status != "Stopped" && !status.startsWith("Error:")
-                actionButton.text = when {
-                    status == "Stopping" -> "Stopping..."
-                    listening -> "Stop listening"
-                    else -> "Start listening"
-                }
-                actionButton.isEnabled = status != "Stopping"
-            }
-        }
         buildInterface()
     }
 
     override fun onResume() {
         super.onResume()
+        activityResumed = true
+        handler.removeCallbacks(statusPoll)
+        handler.post(statusPoll)
         if (::addressLabel.isInitialized) updateAddress()
     }
 
+    override fun onPause() {
+        activityResumed = false
+        handler.removeCallbacks(statusPoll)
+        super.onPause()
+    }
+
     override fun onDestroy() {
-        receiver.stop()
+        handler.removeCallbacks(statusPoll)
         super.onDestroy()
     }
 
@@ -79,7 +95,7 @@ class MainActivity : Activity() {
             setPadding(0, 0, 0, dp(16))
         }, matchWidth())
         statusLabel = TextView(this).apply {
-            text = "Status: Waiting"
+            text = "Status: Stopped"
             textSize = 18f
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(12), 0, dp(20))
@@ -89,10 +105,18 @@ class MainActivity : Activity() {
             text = "Start listening"
             setOnClickListener {
                 if (listening) {
-                    receiver.stop()
+                    val stopIntent = Intent(this@MainActivity, ReceiverService::class.java).apply {
+                        action = ReceiverService.ACTION_STOP
+                    }
+                    startService(stopIntent)
+                    showStatus("Stopping")
                 } else {
                     updateAddress()
-                    receiver.start(addressLabel.text.toString())
+                    if (addressLabel.text.toString().startsWith("Unavailable")) {
+                        showStatus("Error: connect to Wi-Fi first")
+                    } else {
+                        requestNotificationAccessThenStart(addressLabel.text.toString())
+                    }
                 }
             }
         }
@@ -102,6 +126,53 @@ class MainActivity : Activity() {
 
     private fun updateAddress() {
         addressLabel.text = localIpv4Address()
+    }
+
+    private fun startReceiverService(host: String) {
+        val intent = Intent(this, ReceiverService::class.java).apply {
+            action = ReceiverService.ACTION_START
+            putExtra(ReceiverService.EXTRA_HOST, host)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
+        else startService(intent)
+        showStatus("Starting")
+    }
+
+    private fun requestNotificationAccessThenStart(host: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingReceiverHost = host
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)
+            return
+        }
+        startReceiverService(host)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != NOTIFICATION_PERMISSION_REQUEST) return
+        val host = pendingReceiverHost ?: return
+        pendingReceiverHost = null
+        startReceiverService(host)
+        if (grantResults.firstOrNull() != PackageManager.PERMISSION_GRANTED) {
+            statusLabel.text = "Status: Starting (notification hidden; allow notifications for controls)"
+        }
+    }
+
+    private fun showStatus(status: String) {
+        statusLabel.text = "Status: $status"
+        listening = status != ReceiverService.STATUS_STOPPED && !status.startsWith("Error:")
+        actionButton.text = when {
+            status == "Stopping" -> "Stopping..."
+            listening -> "Stop listening"
+            else -> "Start listening"
+        }
+        actionButton.isEnabled = status != "Stopping"
     }
 
     private fun localIpv4Address(): String {
@@ -143,4 +214,9 @@ class MainActivity : Activity() {
         LinearLayout.LayoutParams.MATCH_PARENT,
         LinearLayout.LayoutParams.WRAP_CONTENT
     )
+
+    companion object {
+        private const val STATUS_REFRESH_MS = 500L
+        private const val NOTIFICATION_PERMISSION_REQUEST = 31
+    }
 }

@@ -123,7 +123,7 @@ class AudioReceiver(
     }
 
     private fun createWebSocketServer(ipAddress: String): WebSocketServer {
-        val websocketServer = object : WebSocketServer(InetSocketAddress("0.0.0.0", PORT)) {
+        val websocketServer = object : WebSocketServer(InetSocketAddress("0.0.0.0", PORT), 1) {
             override fun onOpen(connection: WebSocket, handshake: ClientHandshake) {
                 synchronized(playbackLock) {
                     if (!running) {

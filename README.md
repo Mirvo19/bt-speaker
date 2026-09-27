@@ -4,13 +4,15 @@ Stream live Windows system audio from a desktop browser to an Android phone over
 
 ## Use
 
-1. Connect the Windows PC and Android phone to the same non-guest Wi-Fi network. In the receiver app, tap **Start listening** and note the phone's displayed IPv4 address. The receiver uses port `50005`.
+1. Connect the Windows PC and Android phone to the same non-guest Wi-Fi network. In the receiver app, tap **Start listening** and note the phone's displayed IPv4 address. The receiver uses port `50005`. On Android 13+, allow notifications so the ongoing receiver notification and its Stop action are visible.
 2. On the PC, open [https://mirvo19.github.io/bt-speaker/](https://mirvo19.github.io/bt-speaker/) in Chrome or Edge. Enter the phone's IP and port.
 3. The receiver creates and keeps a private, IP-specific TLS certificate on the phone. The first time only, download and double-click **Download one-time Windows certificate setup** on the sender page while the receiver is listening. Enter the phone's displayed IP if asked, verify it in the certificate details, and confirm once. The helper adds the certificate to the current Windows user's trusted roots. This is needed because GitHub Pages is HTTPS and browsers block unencrypted local WebSockets. The same certificate is reused after receiver restarts. If Chrome was already open and still shows a certificate error, restart it.
 4. Press **Connect**. In the browser sharing prompt, choose **Entire Screen** and turn on **Share audio**, then confirm sharing. A missing audio track is shown as an error. Press **Disconnect** to stop.
 5. Connect the phone's headphone output to the speaker system. Keep the receiver app open while listening.
 
 The sender page remembers up to six recent receiver IP/port pairs and your volume setting in that browser's local storage. The volume slider adjusts the receiver's Android playback volume while connected; the phone's hardware/media volume still applies as an additional limit.
+
+The receiver runs as an Android foreground media-playback service. Audio and the listener continue when the screen turns off or the app is backgrounded; use the ongoing notification's **Stop listening** action or return to the app to stop it. If Android reclaims the process, the sticky service attempts to resume listening on the last IP. No permanent CPU or Wi-Fi lock is held while waiting, to limit idle battery use. Aggressive vendor battery managers, battery saver, Doze, Wi-Fi changes, or force-stopping the app can still interrupt network availability; disable per-app battery restrictions only if the phone continues to suspend the receiver.
 
 The web page is static HTML and JavaScript; it has no backend. The GitHub Actions workflow publishes it to Pages from `main`. For first-time Pages setup, either set **Settings > Pages > Build and deployment > Source** to **GitHub Actions**, or add a `GH_PAGES_ADMIN_TOKEN` Actions secret containing a token authorized to enable Pages (classic PAT with `repo` scope, or a fine-grained PAT with Pages write and Administration write). When configured, this token is used by the Pages configuration action; the deployment itself uses the workflow's Pages and OIDC permissions.
 
