@@ -1,5 +1,6 @@
 package com.example.btwoofer
 
+import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
@@ -7,6 +8,10 @@ import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x509.GeneralName
 import org.bouncycastle.asn1.x509.GeneralNames
 import org.bouncycastle.asn1.x509.Extension
+import org.bouncycastle.asn1.x509.BasicConstraints
+import org.bouncycastle.asn1.x509.ExtendedKeyUsage
+import org.bouncycastle.asn1.x509.KeyPurposeId
+import org.bouncycastle.asn1.x509.KeyUsage
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
@@ -15,6 +20,9 @@ import org.java_websocket.handshake.ClientHandshake
 import org.java_websocket.server.DefaultSSLWebSocketServerFactory
 import org.java_websocket.server.WebSocketServer
 import java.io.IOException
+import java.io.File
+import java.io.FileOutputStream
+import java.io.FileInputStream
 import java.math.BigInteger
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
@@ -22,10 +30,14 @@ import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.SecureRandom
 import java.util.Date
+import java.security.cert.X509Certificate
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 
-class AudioReceiver(private val onStatusChanged: (String) -> Unit) {
+class AudioReceiver(
+    private val context: Context,
+    private val onStatusChanged: (String) -> Unit
+) {
     @Volatile private var running = false
     @Volatile private var server: WebSocketServer? = null
     @Volatile private var serverThread: Thread? = null
@@ -196,6 +208,20 @@ class AudioReceiver(private val onStatusChanged: (String) -> Unit) {
     }
 
     private fun createSslContext(ipAddress: String): SSLContext {
+        val password = KEYSTORE_PASSWORD.toCharArray()
+        val keyStoreFile = File(context.filesDir, "receiver-${ipAddress.replace('.', '-')}.p12")
+        val keyStore = KeyStore.getInstance("PKCS12")
+        if (keyStoreFile.exists()) {
+            FileInputStream(keyStoreFile).use { keyStore.load(it, password) }
+            val certificate = keyStore.getCertificate("receiver") as? X509Certificate
+            val addressMatches = certificate?.subjectAlternativeNames?.any { name ->
+                name.size > 1 && name[0] == 7 && name[1] == ipAddress
+            } == true
+            if (addressMatches && System.currentTimeMillis() < certificate!!.notAfter.time) {
+                return createTlsContext(keyStore, password)
+            }
+        }
+
         val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
         keyPairGenerator.initialize(2048)
         val keyPair = keyPairGenerator.generateKeyPair()
@@ -209,6 +235,18 @@ class AudioReceiver(private val onStatusChanged: (String) -> Unit) {
             subject,
             keyPair.public
         ).addExtension(
+            Extension.basicConstraints,
+            true,
+            BasicConstraints(true)
+        ).addExtension(
+            Extension.keyUsage,
+            true,
+            KeyUsage(KeyUsage.digitalSignature or KeyUsage.keyEncipherment or KeyUsage.keyCertSign)
+        ).addExtension(
+            Extension.extendedKeyUsage,
+            false,
+            ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth)
+        ).addExtension(
             Extension.subjectAlternativeName,
             false,
             GeneralNames(GeneralName(GeneralName.iPAddress, ipAddress))
@@ -218,11 +256,15 @@ class AudioReceiver(private val onStatusChanged: (String) -> Unit) {
         )
         certificate.verify(keyPair.public)
 
-        val password = ByteArray(32).also(SecureRandom()::nextBytes).joinToString("") { "%02x".format(it) }.toCharArray()
-        val keyStore = KeyStore.getInstance("PKCS12").apply {
+        keyStore.apply {
             load(null, null)
             setKeyEntry("receiver", keyPair.private, password, arrayOf(certificate))
         }
+        FileOutputStream(keyStoreFile).use { keyStore.store(it, password) }
+        return createTlsContext(keyStore, password)
+    }
+
+    private fun createTlsContext(keyStore: KeyStore, password: CharArray): SSLContext {
         val keyManagers = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply {
             init(keyStore, password)
         }
@@ -235,6 +277,7 @@ class AudioReceiver(private val onStatusChanged: (String) -> Unit) {
         private const val BYTES_PER_FRAME = 4
         private const val PLAYBACK_BUFFER_BYTES = 8_192
         private const val CERTIFICATE_CLOCK_SKEW_MS = 60_000L
-        private const val CERTIFICATE_VALIDITY_MS = 365L * 24 * 60 * 60 * 1000
+        private const val CERTIFICATE_VALIDITY_MS = 3650L * 24 * 60 * 60 * 1000
+        private const val KEYSTORE_PASSWORD = "bt-woofer-local-keystore"
     }
 }

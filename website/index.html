@@ -173,6 +173,14 @@
       line-height: 1.5;
     }
 
+    .setup-link {
+      display: inline-block;
+      margin-top: 8px;
+      color: var(--green-dark);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
     @media (max-width: 520px) {
       .connect-form { padding: 18px; }
       .fields { grid-template-columns: 1fr 95px; gap: 10px; }
@@ -206,7 +214,8 @@
           <span class="dot" aria-hidden="true"></span><span id="status-text">Waiting</span>
         </div>
       </div>
-      <p class="notice" id="notice" aria-live="polite">Before connecting, approve the receiver's local certificate in Chrome. The Android app shows the address and port.</p>
+      <p class="notice" id="notice" aria-live="polite">First time only: start the phone receiver and run the Windows certificate helper. Approve the phone certificate once when prompted.</p>
+      <a class="setup-link" href="./setup-receiver-trust.cmd" download>Download one-time Windows certificate setup</a>
     </form>
   </main>
 
@@ -287,7 +296,7 @@
 
         await new Promise((resolve, reject) => {
           socket.addEventListener("open", resolve, { once: true });
-          socket.addEventListener("error", () => reject(new Error("Connection failed. Check the phone IP, port, Wi-Fi, and approve its certificate in Chrome.")), { once: true });
+          socket.addEventListener("error", () => reject(new Error("Connection failed. First-time setup: start the phone receiver, run the Windows certificate helper above, and approve the phone certificate once. Also check the IP, port, and Wi-Fi.")), { once: true });
           socket.addEventListener("close", () => {
             if (session === current) {
               disconnect("Disconnected");

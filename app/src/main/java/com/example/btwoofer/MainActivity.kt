@@ -19,7 +19,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        receiver = AudioReceiver { status ->
+        receiver = AudioReceiver(this) { status ->
             runOnUiThread {
                 statusLabel.text = "Status: $status"
                 listening = status != "Stopped" && !status.startsWith("Error:")
@@ -67,7 +67,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(4), 0, dp(12))
         }, matchWidth())
         content.addView(TextView(this).apply {
-            text = "First connection: open https://<phone-IP>:${AudioReceiver.PORT} in Chrome on the PC and proceed past the local certificate warning, then return to the sender page."
+            text = "One-time PC setup: use the Windows certificate helper linked on the sender page while this receiver is listening. Approve the certificate once; future connections will be automatic."
             textSize = 14f
             setPadding(0, 0, 0, dp(16))
         }, matchWidth())

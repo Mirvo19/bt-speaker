@@ -6,7 +6,7 @@ Stream live Windows system audio from a desktop browser to an Android phone over
 
 1. Connect the Windows PC and Android phone to the same non-guest Wi-Fi network. In the receiver app, tap **Start listening** and note the phone's displayed IPv4 address. The receiver uses port `50005`.
 2. On the PC, open [https://mirvo19.github.io/bt-speaker/](https://mirvo19.github.io/bt-speaker/) in Chrome or Edge. Enter the phone's IP and port.
-3. The receiver creates a local, self-signed TLS certificate. Before connecting from the sender page, open `https://<phone-IP>:50005` in a new Chrome tab and proceed through the local certificate warning, then return to the sender page. This approval is needed because GitHub Pages is HTTPS and browsers block its connection to an unencrypted local WebSocket. The certificate is regenerated when listening starts, so approve it again after restarting the receiver.
+3. The receiver creates and keeps a private, IP-specific TLS certificate on the phone. The first time only, download and double-click **Download one-time Windows certificate setup** on the sender page while the receiver is listening. Enter the phone's displayed IP if asked, verify it in the certificate details, and confirm once. The helper adds the certificate to the current Windows user's trusted roots. This is needed because GitHub Pages is HTTPS and browsers block unencrypted local WebSockets. The same certificate is reused after receiver restarts. If Chrome was already open and still shows a certificate error, restart it.
 4. Press **Connect**. In the browser sharing prompt, choose **Entire Screen** and turn on **Share audio**, then confirm sharing. A missing audio track is shown as an error. Press **Disconnect** to stop.
 5. Connect the phone's headphone output to the speaker system. Keep the receiver app open while listening.
 
@@ -18,8 +18,8 @@ The web page is static HTML and JavaScript; it has no backend. The GitHub Action
 - The receiver app supports Android 7.0 (API 24) and later. The APK is built on every push to `main`, uploaded as an Actions artifact, and attached to a GitHub Release. Download `BT-Woofer-Audio-Link-debug.apk` from the latest Actions run or Releases page and sideload it; Android build tools are not needed locally.
 - Audio uses 44.1 kHz, stereo, signed 16-bit little-endian PCM, sent in 1024-frame binary WebSocket messages (about 23 ms each). The phone listens on TCP port `50005` using TLS-secured WebSockets and plays through the default Android audio route. Only one browser sender is accepted at a time.
 - Expect roughly 100-300 ms of end-to-end latency, varying with browser capture, Wi-Fi, phone audio buffers, and output hardware. This is a listening link, not a synchronized or lossless recording system.
-- The receiver's certificate is self-signed and has no authentication. Approve it only on a trusted local network. Keep the phone and PC on the same LAN; guest Wi-Fi or client isolation, firewall rules, or VPN routing may prevent the connection.
-- Browser and Android audio devices may resample internally. Protected or otherwise restricted system audio may not be capturable. The receiver app must remain open, and restarting it requires approving its newly generated certificate again.
+- The receiver's certificate is self-signed and has no authentication. The setup helper uses trust-on-first-use; only trust the certificate when its displayed IP matches the phone and you are on a trusted local network. Re-run the helper if the phone's IP changes or the app is reinstalled. Keep the phone and PC on the same LAN; guest Wi-Fi or client isolation, firewall rules, or VPN routing may prevent the connection.
+- Browser and Android audio devices may resample internally. Protected or otherwise restricted system audio may not be capturable. The receiver app must remain open.
 
 ## CI outputs
 
